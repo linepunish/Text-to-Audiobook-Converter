@@ -1,180 +1,20 @@
-# --- 1. Dependency Check and Installation ---
+# Original imports (keep these)
 import sys
-import os
-import subprocess
-import importlib.util
-import platform
-import shutil # For checking ffmpeg
-
-# --- Auto-relaunch with pythonw on Windows if necessary ---
-# This must be done *before* significant GUI elements or console prints
-# that you want to hide start, but after basic imports.
-if platform.system() == "Windows":
-    # Check if the current executable is python.exe (case-insensitive)
-    current_executable = sys.executable.lower()
-    if current_executable.endswith("python.exe"):
-        # Construct the path to pythonw.exe
-        pythonw_executable = current_executable.replace("python.exe", "pythonw.exe")
-
-        # Check if pythonw.exe actually exists
-        if os.path.exists(pythonw_executable):
-            # Use sys.argv to pass any command-line arguments to the new process
-            cmd = [pythonw_executable] + sys.argv
-
-            # Relaunch the script using pythonw
-            # We use Popen and detach so the current console process can exit immediately
-            try:
-                # Using DETACHED_PROCESS ensures the new process is independent
-                DETACHED_PROCESS = 0x00000008
-                subprocess.Popen(cmd, creationflags=DETACHED_PROCESS)
-                # Exit the current python.exe process
-                sys.exit(0)
-            except Exception as e:
-                # If relaunch fails, print error and continue with the console
-                print(f"Error during pythonw relaunch: {e}", file=sys.stderr)
-                print("Continuing with console visible.", file=sys.stderr)
-        else:
-            # If pythonw.exe is not found, print a warning and continue with the console
-            print(f"Warning: pythonw.exe not found at {pythonw_executable}.", file=sys.stderr)
-            print("Cannot auto-hide console. Continuing with console visible.", file=sys.stderr)
-# --- End of auto-relaunch logic ---
-
-
-# Define packages: {import_name: package_name_for_pip}
-required_packages = {
-    'numpy': 'numpy',
-    'PIL': 'Pillow',       # Import name is PIL, package name is Pillow
-    'cv2': 'opencv-python',
-    'pydub': 'pydub',
-    'tqdm': 'tqdm'
-    # tkinter is assumed built-in
-}
-
-def check_and_install_packages(packages):
-    """Checks for required packages and attempts to install missing ones using pip."""
-    # This will print to the console if running with python.exe initially
-    # If relaunched with pythonw, this output won't be seen unless captured
-    # For dependency checks, seeing output is often desired.
-    print("Checking required Python packages...")
-    all_found = True
-    packages_to_install = {}
-
-    # ... (rest of your check_and_install_packages function) ...
-    for import_name, package_name in packages.items():
-        try:
-            spec = importlib.util.find_spec(import_name)
-            if spec is None:
-                print(f"  - Package '{package_name}' (for import '{import_name}') not found.")
-                packages_to_install[import_name] = package_name
-                all_found = False
-        except ModuleNotFoundError:
-            print(f"  - Package '{package_name}' (for import '{import_name}') not found.")
-            packages_to_install[import_name] = package_name
-            all_found = False
-
-    if not packages_to_install:
-        print("All required Python packages are installed.")
-        return True
-
-    print("\nAttempting to install missing packages using pip...")
-    print("NOTE: This requires an internet connection and may need administrator privileges.")
-    install_success = True
-
-    for import_name, package_name in packages_to_install.items():
-        print(f"Installing {package_name}...")
-        try:
-            # Use sys.executable (which is pythonw if relaunched)
-            # Allow the console for pip to show progress/errors during install if it pops up (less likely with pythonw but possible depending on system)
-            # Or explicitly hide it: creation_flags = 0x08000000 if platform.system() == "Windows" else 0
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", package_name],
-                check=True,
-                capture_output=True, # Capture output
-                text=True,           # Decode output as text
-                # Add creationflags here if you want to hide the pip install window too,
-                # but it's usually helpful to see it. Let's keep it visible for pip.
-            )
-            print(f"Successfully installed {package_name}.")
-            # print(result.stdout) # Optional: show pip output
-        except subprocess.CalledProcessError as e:
-            print(f"ERROR: Failed to install {package_name}.", file=sys.stderr)
-            print(f"Pip Error Output:\n{e.stderr}", file=sys.stderr)
-            install_success = False
-        except Exception as e:
-            print(f"ERROR: An unexpected error occurred during installation of {package_name}: {e}", file=sys.stderr)
-            install_success = False
-
-    if not install_success:
-        print("\nOne or more packages failed to install. Please install them manually:", file=sys.stderr)
-        for _, pkg_name in packages_to_install.items():
-             print(f"  pip install {pkg_name}", file=sys.stderr)
-        return False
-
-    print("Dependency installation attempt finished.")
-    # Verify installation again after attempting install
-    print("Verifying installation...")
-    final_check_ok = True
-    for import_name, package_name in packages_to_install.items():
-          spec = importlib.util.find_spec(import_name)
-          if spec is None:
-              print(f"ERROR: Package '{package_name}' still not found after installation attempt.", file=sys.stderr)
-              final_check_ok = False
-    if final_check_ok and not all_found:
-          print("Successfully installed and verified missing packages.")
-    elif not final_check_ok:
-          print("Verification failed for one or more packages.", file=sys.stderr)
-          return False
-
-    return True
-
-
-# Check if FFMPEG exists in PATH (cannot install via pip)
-def check_ffmpeg():
-    print("Checking for ffmpeg executable...")
-    ffmpeg_path = shutil.which("ffmpeg")
-    if ffmpeg_path:
-        print(f"  - ffmpeg found at: {ffmpeg_path}")
-        return True
-    else:
-        print("-------------------------------------------------------", file=sys.stderr)
-        print("ERROR: ffmpeg executable not found in system PATH.", file=sys.stderr)
-        print("Please install ffmpeg and ensure it's added to your", file=sys.stderr)
-        print("system's environment variables (PATH).", file=sys.stderr)
-        print("Download from: https://ffmpeg.org/download.html", file=sys.stderr)
-        print("-------------------------------------------------------", file=sys.stderr)
-        return False
-
-# Run the checks
-packages_ok = check_and_install_packages(required_packages)
-ffmpeg_ok = check_ffmpeg()
-
-# Decide if to continue - Let's allow continuing but the app will fail later if needed components missing
-# if not packages_ok or not ffmpeg_ok:
-#   print("\nExiting due to missing dependencies.", file=sys.stderr)
-#   sys.exit(1)
-
-# Removed the print("Dependency checks complete. Starting GUI...\n") and time.sleep(2) from here
-# They were moved before the auto-relaunch logic if you want them to show only on initial launch
-
-
-# --- 2. Original Imports (now potentially installed) ---
 import re
 import argparse
+import os
 import tempfile
-# shutil already imported
+import shutil
+import time
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageTk
+from PIL import Image, ImageDraw, ImageFont, ImageTk # Added ImageTk
 import cv2
-from tqdm import tqdm # tqdm progress won't show well in GUI, replaced with status updates
+from tqdm import tqdm # tqdm progress might not show well in GUI, replaced with status updates
 from pydub import AudioSegment
 # import pydub.playback # Playback not needed for GUI generation
 from pydub.silence import detect_leading_silence
 import math
-# Subprocess already imported
-# Sys already imported
-# OS already imported
-# Platform already imported
-
+import subprocess
 
 # GUI specific imports
 import tkinter as tk
@@ -182,17 +22,18 @@ from tkinter import ttk, filedialog, messagebox, colorchooser, font as tkfont
 import threading
 import queue # For thread communication (optional for advanced progress)
 
-
-# --- 3. Paste your TextToVideo class here ---
-# ---    (Ensure subprocess calls are modified as shown below) ---
+# --- Paste your entire TextToVideo class here ---
 class TextToVideo:
     def __init__(self, font_path=None, font_size=40, fps=24, duration_per_sentence=None,
                  transition_duration=0.5, width=1280, height=720,
                  background_color=(0, 0, 0), text_color=(255, 255, 255),
                  tts_engine='balcon', language='en', voice=None, speed=0,
-                 balcon_path='balcon.exe', status_callback=None):
+                 balcon_path='balcon.exe', status_callback=None): # Added status_callback
+        """
+        Initialize the TextToVideo converter with customizable parameters
+        """
         self.fps = fps
-        self.duration_per_sentence = duration_per_sentence
+        self.duration_per_sentence = duration_per_sentence  # If None, will be determined by TTS duration
         self.transition_duration = transition_duration
         self.width = width
         self.height = height
@@ -204,35 +45,48 @@ class TextToVideo:
         self.speed = speed
         self.temp_dir = None
         self.balcon_path = balcon_path
-        self.status_callback = status_callback
+        self.status_callback = status_callback # Store the callback
 
-        # Font finding logic (remains the same)
+        # Find a suitable font (keep original logic)
         if font_path and os.path.exists(font_path):
             self.font_path = font_path
         else:
-             if os.name == 'nt':  # Windows
-                 font_options = [
-                     "C:\\Windows\\Fonts\\arial.ttf", "C:\\Windows\\Fonts\\calibri.ttf", "C:\\Windows\\Fonts\\segoeui.ttf"
-                 ]
-             elif os.name == 'posix':  # macOS or Linux
-                 font_options = [
-                     "/System/Library/Fonts/Helvetica.ttc", "/System/Library/Fonts/SF-Pro-Text-Regular.otf",
-                     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/Arial.ttf"
-                 ]
-             else: font_options = []
-             found_font = None
-             for font in font_options:
-                 if os.path.exists(font): found_font = font; break
-             if found_font: self.font_path = found_font
-             elif font_path: self.font_path = font_path
-             else: self.font_path = None
+            if os.name == 'nt':  # Windows
+                font_options = [
+                    "C:\\Windows\\Fonts\\arial.ttf",
+                    "C:\\Windows\\Fonts\\calibri.ttf",
+                    "C:\\Windows\\Fonts\\segoeui.ttf"
+                ]
+            elif os.name == 'posix':  # macOS or Linux
+                font_options = [
+                    "/System/Library/Fonts/Helvetica.ttc",  # macOS
+                    "/System/Library/Fonts/SF-Pro-Text-Regular.otf", # macOS
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux
+                    "/usr/share/fonts/TTF/Arial.ttf"  # Linux
+                ]
+            else:
+                font_options = []
+
+            found_font = None
+            for font in font_options:
+                if os.path.exists(font):
+                    found_font = font
+                    break
+            if found_font:
+                 self.font_path = found_font
+            elif font_path: # If user provided one but it didn't exist
+                 self.font_path = font_path # Keep user attempt for error reporting
+                 # Let the error happen later if still not found
+            else:
+                 self.font_path = None # Indicate no default found
 
 
         self.font_size = font_size
+        # Load font only when needed, handle potential errors there
         self.pil_font = None # Delay loading
 
     def _load_font(self):
-        # ... (remains the same) ...
+        """Loads the PIL font object, raises error if path is invalid."""
         if self.pil_font is None:
             if not self.font_path or not os.path.exists(self.font_path):
                  raise FileNotFoundError(f"Font file not found or not specified: {self.font_path}")
@@ -243,57 +97,147 @@ class TextToVideo:
 
 
     def _log_status(self, message):
-        # ... (remains the same) ...
-        if self.status_callback: self.status_callback(message)
+        """Helper to send status updates via callback if available."""
+        # print(message) # Keep console logging if desired
+        if self.status_callback:
+            self.status_callback(message)
 
     def split_into_sentences(self, text):
-        # ... (remains the same) ...
+        """
+        Split the input text into sentences (keep original logic)
+        """
         sentences = re.split(r'(?<=[.!?])\s+', text)
         return [s.strip() for s in sentences if s.strip()]
 
-    # --- Centralized Subprocess Runner ---
-    def _run_subprocess(self, cmd_list, process_name="command"):
-        """Runs a subprocess, hiding console on Windows."""
-        self._log_status(f"Running external {process_name}: {' '.join(cmd_list)}")
-        creation_flags = 0
-        if platform.system() == "Windows":
-            # CREATE_NO_WINDOW = 0x08000000 # Hex constant for hiding console
-            creation_flags = 0x08000000
+    def create_frame(self, text, fade=1.0):
+        """
+        Create a single frame with the given text and fade level (keep original logic, ensure font is loaded)
+        """
+        self._load_font() # Ensure font is loaded before drawing
+        img = Image.new('RGB', (self.width, self.height), self.background_color)
+        draw = ImageDraw.Draw(img)
+
+        # Calculate text position for center alignment (using potentially adjusted font)
+        current_font = self.pil_font
+        temp_font_size = self.font_size
+
+        # Initial attempt with original font size
+        while temp_font_size > 5: # Don't let font get impossibly small
+            try:
+                current_font = ImageFont.truetype(self.font_path, temp_font_size)
+                lines = self._wrap_text(text, current_font)
+                total_height = self._calculate_text_block_height(lines, current_font)
+
+                if total_height <= self.height - 40: # Check if it fits vertically with margin
+                    break # Font size is okay
+                else:
+                    temp_font_size = int(temp_font_size * 0.9) # Reduce size and retry
+                    self._log_status(f"Text too long, reducing font size to {temp_font_size}...")
+
+            except IOError: # Handle case where smaller font size somehow fails
+                 self._log_status(f"Warning: Could not load font at size {temp_font_size}. Using previous.")
+                 break # Use the last known good size
+
+
+        # Apply fade to text color
+        text_color = tuple(int(c * fade) for c in self.text_color)
+
+        # Draw the wrapped text
+        self._draw_wrapped_text(draw, lines, text_color, current_font)
+
+        return np.array(img)
+
+
+    def _wrap_text(self, text, font):
+        """Helper function to wrap text into lines."""
+        words = text.split()
+        lines = []
+        current_line = []
+        max_width = self.width - 100  # Margin
+
+        for word in words:
+            test_line_list = current_line + [word]
+            test_line = ' '.join(test_line_list)
+            try:
+                 # Use getbbox for potentially more accurate width in newer Pillow versions
+                 left, top, right, bottom = font.getbbox(test_line)
+                 width = right - left
+            except AttributeError:
+                 # Fallback for older Pillow versions
+                 width, _ = font.getsize(test_line)
+
+
+            if width <= max_width:
+                current_line.append(word)
+            else:
+                # Handle word longer than max_width
+                if not current_line:
+                    # If the single word is too long, just put it on its own line
+                    lines.append(word)
+                    # Don't reset current_line, it's implicitly handled
+                else:
+                    # Finish the previous line
+                    lines.append(' '.join(current_line))
+                    # Start new line with the current word
+                    current_line = [word]
+
+        # Add the last line
+        if current_line:
+            lines.append(' '.join(current_line))
+
+        return lines
+
+    def _calculate_text_block_height(self, lines, font):
+        """Calculates the total height of the text block."""
+        if not lines:
+            return 0
 
         try:
-            result = subprocess.run(
-                cmd_list,
-                check=True,          # Raise error if command fails
-                capture_output=True, # Capture stdout/stderr
-                text=True,           # Decode as text
-                encoding='utf-8',    # Specify encoding
-                errors='ignore',     # Ignore decoding errors if they occur
-                creationflags=creation_flags # Hide console on Windows
-            )
-            # Optional: Log output if needed for debugging, but keep it minimal for status logs
-            # if result.stdout: self._log_status(f"{process_name} stdout: {result.stdout[:200]}...")
-            # if result.stderr: self._log_status(f"{process_name} stderr: {result.stderr[:200]}...")
-            return result
-        except FileNotFoundError as e:
-            self._log_status(f"ERROR: {process_name} command not found: '{cmd_list[0]}'. Ensure it's installed and in the system PATH.")
-            raise RuntimeError(f"Required command '{cmd_list[0]}' not found.") from e
-        except subprocess.CalledProcessError as e:
-            stdout = e.stdout if e.stdout else ""
-            stderr = e.stderr if e.stderr else ""
-            self._log_status(f"ERROR: {process_name} command failed (Return Code: {e.returncode}).")
-            self._log_status(f"Command: {' '.join(cmd_list)}")
-            if stdout: self._log_status(f"Stdout:\n{stdout}")
-            if stderr: self._log_status(f"Stderr:\n{stderr}")
-            raise RuntimeError(f"{process_name} command '{cmd_list[0]}' failed.") from e
-        except Exception as e:
-            self._log_status(f"ERROR: An unexpected error occurred running {process_name} command {' '.join(cmd_list)}: {e}")
-            import traceback
-            self._log_status(traceback.format_exc())
-            raise # Re-raise the unexpected error
+             # Get height from bounding box for potentially better accuracy
+             _, top, _, bottom = font.getbbox('A') # Get height of a character
+             line_h = bottom - top
+        except AttributeError:
+             # Fallback for older Pillow
+             _, line_h = font.getsize('A')
 
-    # --- Modified methods using _run_subprocess ---
+        line_spacing_multiplier = 1.4 # Slightly less than 1.5 might look better
+        total_height = line_h * len(lines) * line_spacing_multiplier
+        return total_height
+
+    def _draw_wrapped_text(self, draw, lines, text_color, font):
+        """Draws the already wrapped lines of text centered."""
+        if not lines:
+            return
+
+        try:
+             _, top, _, bottom = font.getbbox('A')
+             line_h = bottom - top
+        except AttributeError:
+             _, line_h = font.getsize('A')
+
+        line_spacing_multiplier = 1.4
+        line_height_pixels = line_h * line_spacing_multiplier
+        total_height = line_height_pixels * len(lines)
+
+        # Start drawing from top-center
+        y = (self.height - total_height) // 2
+
+        for line in lines:
+            try:
+                left, _, right, _ = font.getbbox(line)
+                width = right - left
+            except AttributeError:
+                width, _ = font.getsize(line)
+
+            x = (self.width - width) // 2
+            draw.text((x, y), line, font=font, fill=text_color)
+            y += line_height_pixels
+
 
     def generate_speech_balcon(self, sentences):
+        """
+        Generate speech using Balabolka (keep original logic, add status updates)
+        """
         if not os.path.exists(self.balcon_path):
              raise FileNotFoundError(f"Balabolka command line tool not found at: {self.balcon_path}")
 
@@ -302,7 +246,9 @@ class TextToVideo:
         durations = []
 
         self._log_status(f"Generating speech for {len(sentences)} sentences using Balabolka...")
-        for i, sentence in enumerate(sentences):
+        # Use range for index tracking without tqdm in GUI
+        for i in range(len(sentences)):
+            sentence = sentences[i]
             self._log_status(f"  Processing sentence {i+1}/{len(sentences)}: '{sentence[:30]}...'")
             output_file = os.path.join(self.temp_dir, f"sentence_{i}.wav")
             text_file = os.path.join(self.temp_dir, f"sentence_{i}.txt")
@@ -317,27 +263,41 @@ class TextToVideo:
                 if self.voice:
                     cmd.extend(['-n', self.voice])
                 cmd.extend(['-s', str(self.speed)])
+                # Use utf8 encoding for input text file
                 cmd.extend(['--encoding', 'utf8'])
+                # Suppress Balcon's own console output if possible (might vary by version)
+                # Add '-silent' or similar flags if supported by your balcon version
+                # cmd.append('-silent') # Example, check balcon documentation
 
-                # Use the helper method to run Balcon (it handles hiding the console)
-                self._run_subprocess(cmd, process_name="Balcon")
+                # Run Balcon
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+                # Note: Balcon might output its own progress/status to stdout/stderr
+                # self._log_status(f"Balcon stdout: {result.stdout}") # Optional: log balcon output
+                # if result.stderr: self._log_status(f"Balcon stderr: {result.stderr}")
 
+            except subprocess.CalledProcessError as e:
+                error_message = f"Error executing balcon: {e}\n"
+                error_message += f"Command: {' '.join(cmd)}\n"
+                error_message += f"Balcon stdout: {e.stdout}\n"
+                error_message += f"Balcon stderr: {e.stderr}\n"
+                self._log_status(error_message) # Log error details
+                raise RuntimeError(f"Balabolka (balcon) failed for sentence {i+1}. Check logs/console.") from e
             except Exception as e:
-                self._log_status(f"Error during speech generation setup for sentence {i+1}: {e}")
-                if os.path.exists(text_file): os.remove(text_file)
-                raise
+                 self._log_status(f"Error during speech generation for sentence {i+1}: {e}")
+                 raise # Re-raise other exceptions
             finally:
                 if os.path.exists(text_file):
                     os.remove(text_file)
 
             if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-                 raise FileNotFoundError(f"Balcon ran successfully but failed to create a valid audio file: {output_file}")
+                 raise FileNotFoundError(f"Balcon ran but failed to create a valid audio file: {output_file}")
 
-            # Load audio and calculate duration (keep original logic)
+            # Load audio and calculate duration
             try:
                  audio = AudioSegment.from_wav(output_file)
                  duration_sec = len(audio) / 1000.0
-                 durations.append(duration_sec + 0.05) # Add small buffer
+                 # Add a tiny buffer to duration to prevent issues with exact timing
+                 durations.append(duration_sec + 0.05)
                  audio_files.append(output_file)
             except Exception as e:
                  self._log_status(f"Error loading generated wav file {output_file}: {e}")
@@ -346,530 +306,545 @@ class TextToVideo:
         self._log_status("Speech generation complete.")
         return audio_files, durations
 
+    def create_silent_audio_segment(self, duration_ms):
+        """
+        Create a silent audio segment (keep original logic)
+        """
+        return AudioSegment.silent(duration=duration_ms)
+
+    def create_synchronized_audio(self, audio_files, display_timings):
+        """
+        Create a synchronized audio track (keep original logic, add status)
+        """
+        self._log_status("Creating synchronized audio track...")
+        combined_audio = AudioSegment.empty()
+        current_position_ms = 0
+
+        for i, (audio_file, (start_time, end_time)) in enumerate(zip(audio_files, display_timings)):
+            start_ms = int(start_time * 1000)
+            end_ms = int(end_time * 1000)
+            display_duration_ms = end_ms - start_ms
+
+            try:
+                speech = AudioSegment.from_file(audio_file)
+                speech_duration_ms = len(speech)
+
+                # Add silence buffer to reach the start time
+                if start_ms > current_position_ms:
+                    silence_duration = start_ms - current_position_ms
+                    silence = self.create_silent_audio_segment(silence_duration)
+                    combined_audio += silence
+                    current_position_ms = start_ms
+
+                target_speech_duration_ms = display_duration_ms - int(self.transition_duration * 2 * 1000)
+                if target_speech_duration_ms <= 0:
+                     self._log_status(f"Warning: Display duration too short for transitions for sentence {i+1}. Audio might be cut short.")
+                     target_speech_duration_ms = 10 # Use a tiny duration
+
+
+                # Adjust speed if needed (slightly different logic for fitting within display minus transitions)
+                if speech_duration_ms > target_speech_duration_ms:
+                    speed_factor = speech_duration_ms / target_speech_duration_ms
+                    self._log_status(f"  Adjusting speed for sentence {i+1} (Factor: {speed_factor:.2f})")
+                    try:
+                        # pydub > 0.25.0 uses speedup
+                        speech = speech.speedup(playback_speed=speed_factor)
+                        # Ensure frame rate is standard after potential speedup changes
+                        speech = speech.set_frame_rate(44100)
+                    except AttributeError:
+                         # Older pydub version fallback (less accurate)
+                         self._log_status("  (Using older pydub speed adjustment method)")
+                         new_frame_rate = int(speech.frame_rate * speed_factor)
+                         speech = speech._spawn(speech.raw_data, overrides={"frame_rate": new_frame_rate})
+                         speech = speech.set_frame_rate(44100) # Reset frame rate
+
+
+                elif speech_duration_ms < target_speech_duration_ms:
+                     # Add padding silence if speech is shorter than the available slot
+                     padding_needed = target_speech_duration_ms - speech_duration_ms
+                     speech += self.create_silent_audio_segment(padding_needed)
+
+
+                combined_audio += speech
+                current_position_ms += len(speech) # Actual duration added
+
+                # Add silence equivalent to fade-out transition before next sentence starts
+                transition_silence_ms = int(self.transition_duration * 1000)
+                combined_audio += self.create_silent_audio_segment(transition_silence_ms)
+                current_position_ms += transition_silence_ms
+
+
+            except Exception as e:
+                self._log_status(f"Error processing audio for sentence {i+1} ({audio_file}): {e}")
+                # Decide whether to continue or raise. Let's try to continue.
+                # Add silence for the expected duration if processing fails
+                display_duration_ms = int((end_time - start_time) * 1000)
+                if display_duration_ms > 0:
+                     combined_audio += self.create_silent_audio_segment(display_duration_ms)
+                     current_position_ms += display_duration_ms
+
+
+        combined_audio_path = os.path.join(self.temp_dir, "synchronized_audio.wav")
+        try:
+            combined_audio.export(combined_audio_path, format="wav")
+            self._log_status("Synchronized audio track created.")
+        except Exception as e:
+             self._log_status(f"Error exporting combined audio: {e}")
+             raise RuntimeError("Failed to export combined audio.") from e
+
+        return combined_audio_path
+
 
     def combine_audio_video(self, final_output_path, audio_path, temp_video_path):
+        """
+        Combine video and audio using ffmpeg (keep original logic, add status)
+        """
         self._log_status("Combining video and audio using ffmpeg...")
 
-        # Basic check if ffmpeg is available was done at startup, rely on _run_subprocess for execution errors.
+        # Ensure ffmpeg is available (basic check)
+        try:
+            subprocess.run(['ffmpeg', '-version'], check=True, capture_output=True)
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
+            self._log_status("Error: ffmpeg command not found or failed. Please ensure ffmpeg is installed and in your system's PATH.")
+            raise RuntimeError("ffmpeg is required but not found.") from e
+
+        # Use -map options for clarity and robustness
         cmd = [
             'ffmpeg',
-            '-i', temp_video_path,
-            '-i', audio_path,
-            '-map', '0:v:0',
-            '-map', '1:a:0',
-            '-c:v', 'copy',
-            '-c:a', 'aac',
-            '-b:a', '192k',
-            '-shortest',
-            '-y',
+            '-i', temp_video_path,     # Input video
+            '-i', audio_path,          # Input audio
+            '-map', '0:v:0',           # Map video stream from first input
+            '-map', '1:a:0',           # Map audio stream from second input
+            '-c:v', 'copy',            # Copy video stream without re-encoding
+            '-c:a', 'aac',             # Encode audio to AAC (common standard)
+            '-b:a', '192k',            # Set audio bitrate
+            '-shortest',               # Finish encoding when the shortest input stream ends
+            '-y',                      # Overwrite output file without asking
             final_output_path
         ]
 
         try:
-            # Use the helper method to run ffmpeg (it handles hiding the console)
-            self._run_subprocess(cmd, process_name="FFmpeg")
+            # Use subprocess.run for better error capture
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+            # self._log_status(f"ffmpeg stdout:\n{result.stdout}") # Optional: log ffmpeg output
+            # if result.stderr: self._log_status(f"ffmpeg stderr:\n{result.stderr}") # ffmpeg often logs progress to stderr
             self._log_status(f"Video with audio saved successfully as {final_output_path}")
+        except subprocess.CalledProcessError as e:
+            error_message = f"Error executing ffmpeg: {e}\n"
+            error_message += f"Command: {' '.join(cmd)}\n"
+            error_message += f"ffmpeg stdout:\n{e.stdout}\n"
+            error_message += f"ffmpeg stderr:\n{e.stderr}\n"
+            self._log_status(error_message) # Log error details
+            # Attempt to provide a more specific error if possible
+            if "Permission denied" in e.stderr:
+                 raise RuntimeError(f"ffmpeg failed. Permission denied writing to '{final_output_path}'. Check file/folder permissions.") from e
+            elif "No such file or directory" in e.stderr:
+                 raise RuntimeError(f"ffmpeg failed. Input file missing (video: '{temp_video_path}', audio: '{audio_path}') or ffmpeg path issue.") from e
+            else:
+                 raise RuntimeError(f"ffmpeg failed while combining audio/video. Check logs/console for details.") from e
         except Exception as e:
-             self._log_status(f"Failed to combine video and audio. Check logs above.")
-             raise RuntimeError(f"FFmpeg failed. See status log for details.") from e
+             self._log_status(f"An unexpected error occurred during ffmpeg execution: {e}")
+             raise
 
 
-    # --- Other TextToVideo methods (create_frame, _wrap_text, etc.) remain unchanged ---
+    def cleanup(self):
+        """
+        Clean up temporary files (keep original logic, add status)
+        """
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            self._log_status(f"Cleaning up temporary directory: {self.temp_dir}")
+            try:
+                shutil.rmtree(self.temp_dir)
+                self.temp_dir = None
+                self._log_status("Cleanup complete.")
+            except Exception as e:
+                self._log_status(f"Warning: Failed to completely remove temporary directory {self.temp_dir}: {e}")
+
+
     def generate_video(self, sentences, output_path):
-        video = None
-        temp_video_path = None # Initialize here
+        """
+        Generate video (main process, keep logic, integrate status updates, use instance vars)
+        """
+        video = None # Initialize video writer variable
         try:
-             # 1. Generate Speech (calls modified method)
-             if self.tts_engine == 'balcon':
-                 audio_files, speech_durations = self.generate_speech_balcon(sentences)
-             else:
-                 raise ValueError(f"Unsupported TTS engine: {self.tts_engine}")
+            # 1. Generate Speech
+            if self.tts_engine == 'balcon':
+                audio_files, speech_durations = self.generate_speech_balcon(sentences)
+            else:
+                raise ValueError(f"Unsupported TTS engine: {self.tts_engine}")
 
-             # 2. Calculate Timings
-             self._log_status("Calculating display timings...")
-             display_timings = []
-             total_frames = 0
-             for i, duration_sec in enumerate(speech_durations):
-                 # Calculate display duration based on speech or fixed duration
-                 display_duration = self.fixed_duration.get() if self.use_fixed_duration.get() else duration_sec
-                 # Ensure a minimum duration for short sentences or silences
-                 display_duration = max(display_duration, self.transition_duration * 2 + 0.1) # Min duration covers transitions + buffer
+            # 2. Calculate Timings
+            self._log_status("Calculating display timings...")
+            display_durations = []
+            display_timings = []
+            current_time = 0
+            transition_sec = self.transition_duration
 
-                 start_time = total_frames / self.fps
-                 end_time = start_time + display_duration
+            for i, speech_dur in enumerate(speech_durations):
+                 # Duration = speech + fade_in + fade_out
+                 base_duration = speech_dur + (transition_sec * 2)
+
+                 # Apply fixed duration if specified and longer
+                 if self.duration_per_sentence is not None:
+                     sentence_duration = max(base_duration, self.duration_per_sentence)
+                 else:
+                     sentence_duration = base_duration
+
+                 # Ensure minimum duration to accommodate transitions
+                 min_duration_for_transitions = transition_sec * 2 + 0.1 # Add small buffer
+                 sentence_duration = max(sentence_duration, min_duration_for_transitions)
+
+
+                 display_durations.append(sentence_duration)
+
+                 start_time = current_time
+                 end_time = start_time + sentence_duration
                  display_timings.append((start_time, end_time))
-                 total_frames = int(end_time * self.fps) # Update total frames based on end time
+                 current_time = end_time # Next sentence starts immediately after the previous one ends
+                 self._log_status(f"  Sentence {i+1}: Display {start_time:.2f}s - {end_time:.2f}s (Duration: {sentence_duration:.2f}s)")
 
-             self._log_status(f"Total video duration calculated: {total_frames / self.fps:.2f} seconds")
 
-             # 3. Prepare Video Writer
-             temp_video_path = os.path.join(self.temp_dir, "temp_video.avi") # Use a temp path
-             fourcc = cv2.VideoWriter_fourcc(*'DIVX') # Use a common codec like DIVX or XVID for AVI
-             video = cv2.VideoWriter(temp_video_path, fourcc, self.fps, (self.width, self.height))
-             if not video.isOpened():
-                 raise IOError(f"Could not open video writer for path: {temp_video_path}")
-             self._log_status(f"Video writer initialized for {temp_video_path}")
+            # 3. Prepare Video Writer
+            # Ensure temp_dir exists (should be created by generate_speech)
+            if not self.temp_dir or not os.path.exists(self.temp_dir):
+                 # This case shouldn't happen if speech gen worked, but handle defensively
+                 self.temp_dir = tempfile.mkdtemp()
+                 self._log_status(f"Created temporary directory: {self.temp_dir}")
 
-             # 4. Generate Frames
-             self._log_status("Generating video frames...")
-             frame_count = 0
-             for i, sentence in enumerate(sentences):
-                 start_time, end_time = display_timings[i]
-                 num_frames_in_segment = int((end_time - start_time) * self.fps)
-                 frames_per_transition = int(self.transition_duration * self.fps)
-                 frames_per_stable = num_frames_in_segment - 2 * frames_per_transition
+            temp_video_path = os.path.join(self.temp_dir, "temp_video_no_audio.mp4")
+            self._log_status(f"Preparing video writer for: {temp_video_path}")
 
-                 if frames_per_stable < 0:
-                     # Adjust if duration was too short for full transitions
-                     frames_per_stable = 0
-                     frames_per_transition = num_frames_in_segment // 2 # Use half the frames for each transition
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Standard codec
+            video = cv2.VideoWriter(temp_video_path, fourcc, self.fps, (self.width, self.height))
+
+            if not video.isOpened():
+                 raise IOError(f"Error: Could not open video writer for path {temp_video_path}. Check permissions and codec support.")
+
+            # 4. Generate Frames
+            total_frames_estimate = sum(int(self.fps * d) for d in display_durations)
+            self._log_status(f"Generating video frames (estimated {total_frames_estimate} frames)...")
+            frame_count = 0
+            transition_frames = max(1, int(self.fps * transition_sec)) # Ensure at least 1 frame
+
+            for i, sentence in enumerate(sentences):
+                 self._log_status(f"  Generating frames for sentence {i+1}/{len(sentences)}")
+                 display_duration = display_durations[i]
+                 total_sentence_frames = int(self.fps * display_duration)
+
+                 # Ensure frames calculation is robust
+                 hold_frames = max(0, total_sentence_frames - 2 * transition_frames)
 
                  # Fade In
-                 for j in range(frames_per_transition):
-                     fade = j / frames_per_transition
-                     frame = self.create_frame(sentence, fade=fade)
+                 for j in range(transition_frames):
+                     fade_level = (j + 1) / transition_frames
+                     frame = self.create_frame(sentence, fade=fade_level)
                      video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                      frame_count += 1
+                     if frame_count % self.fps == 0: # Update status roughly every second
+                         self._log_status(f"    ...frame {frame_count}/{total_frames_estimate} (Fade In)")
 
-                 # Stable Display
-                 stable_start_frame = frame_count
-                 stable_end_frame = stable_start_frame + frames_per_stable
-                 while frame_count < stable_end_frame:
-                     frame = self.create_frame(sentence, fade=1.0)
-                     video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                     frame_count += 1
+
+                 # Hold (Full Visibility)
+                 if hold_frames > 0:
+                     frame = self.create_frame(sentence, fade=1.0) # Create once
+                     for _ in range(hold_frames):
+                         video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                         frame_count += 1
+                         if frame_count % self.fps == 0:
+                              self._log_status(f"    ...frame {frame_count}/{total_frames_estimate} (Hold)")
+
 
                  # Fade Out
-                 for j in range(frames_per_transition):
-                     fade = 1.0 - (j / frames_per_transition)
-                     frame = self.create_frame(sentence, fade=fade)
+                 for j in range(transition_frames):
+                     fade_level = 1.0 - ((j + 1) / transition_frames)
+                     frame = self.create_frame(sentence, fade=fade_level)
                      video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                      frame_count += 1
+                     if frame_count % self.fps == 0:
+                          self._log_status(f"    ...frame {frame_count}/{total_frames_estimate} (Fade Out)")
 
-             # Ensure total frames match calculation if slight rounding differences occurred
-             while frame_count < total_frames:
-                  # Add final black frame or repeat last frame if needed
-                  frame = self.create_frame("", fade=0.0) # Add a black frame
-                  video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                  frame_count += 1
 
-             self._log_status("Frame generation complete.")
+                 # Ensure exact number of frames per sentence (handle rounding)
+                 while frame_count < sum(int(self.fps * d) for d in display_durations[:i+1]):
+                      # Add filler frames if needed (use last fade-out frame)
+                      if 'frame' not in locals(): # Handle case where transitions cover everything
+                           frame = self.create_frame(sentence, fade=0.0)
+                      video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                      frame_count += 1
+                      self._log_status(f"    ...adding filler frame {frame_count}")
 
-             # 5. Create Synchronized Audio (remains the same)
-             synchronized_audio_path = self.create_synchronized_audio(audio_files, display_timings)
 
-             # 6. Combine Audio and Video (calls modified method)
-             self.combine_audio_video(output_path, synchronized_audio_path, temp_video_path)
+            self._log_status(f"Finished generating {frame_count} frames.")
+            video.release()
+            video = None # Indicate release
+            self._log_status("Temporary video file created.")
 
-             self._log_status("Video generation process completed successfully!")
+            # 5. Create Synchronized Audio
+            synchronized_audio_path = self.create_synchronized_audio(audio_files, display_timings)
+
+            # 6. Combine Audio and Video
+            self.combine_audio_video(output_path, synchronized_audio_path, temp_video_path)
+
+            self._log_status("Video generation process completed successfully!")
 
         except Exception as e:
             self._log_status(f"ERROR during video generation: {e}")
             import traceback
             self._log_status(f"Traceback:\n{traceback.format_exc()}")
+            # Re-raise the exception so the calling GUI thread knows it failed
             raise
         finally:
+            # Ensure video writer is released if an error occurred mid-generation
             if video is not None and video.isOpened():
-                 self._log_status("Releasing video writer...")
+                 self._log_status("Releasing video writer due to error or completion...")
                  video.release()
-            # Cleanup temp video file if it exists and wasn't needed or combining failed
-            if temp_video_path and os.path.exists(temp_video_path):
-                try: os.remove(temp_video_path)
-                except Exception as e: self._log_status(f"Warning: Failed to remove temporary video file {temp_video_path}: {e}")
-            self.cleanup() # Ensure cleanup happens for the temp dir
-
-    def create_frame(self, text, fade=1.0):
-        # --- PASTE create_frame method here ---
-        self._load_font() # Ensure font is loaded before drawing
-        img = Image.new('RGB', (self.width, self.height), self.background_color)
-        draw = ImageDraw.Draw(img)
-        current_font = self.pil_font
-        temp_font_size = self.font_size
-        # Font scaling loop if text doesn't fit
-        while temp_font_size > 5:
-            try:
-                current_font = ImageFont.truetype(self.font_path, temp_font_size)
-                lines = self._wrap_text(text, current_font)
-                total_height = self._calculate_text_block_height(lines, current_font)
-                if total_height <= self.height - 40: # Add some margin
-                    break
-                else:
-                    temp_font_size = int(temp_font_size * 0.9)
-                    # Optional: log font size reduction, but might be noisy
-                    # self._log_status(f"Text too long, reducing font size to {temp_font_size}...")
-            except IOError:
-                self._log_status(f"Warning: Could not load font at size {temp_font_size}. Using previous size.")
-                break # Stop trying to resize if font loading fails
-        text_color = tuple(int(c * fade) for c in self.text_color)
-        self._draw_wrapped_text(draw, lines, text_color, current_font)
-        return np.array(img)
-
-    def _wrap_text(self, text, font):
-        # --- PASTE _wrap_text method here ---
-        words = text.split(); lines = []; current_line = []; max_width = self.width - 100 # Add horizontal margin
-        for word in words:
-            test_line_list = current_line + [word]; test_line = ' '.join(test_line_list)
-            try: left, top, right, bottom = font.getbbox(test_line); width = right - left
-            except AttributeError: width, _ = font.getsize(test_line) # Fallback for older Pillow versions
-            if width <= max_width: current_line.append(word)
-            else:
-                if not current_line: # Handle case where a single word is wider than max_width
-                     lines.append(word)
-                else:
-                    lines.append(' '.join(current_line)); current_line = [word]
-        if current_line: lines.append(' '.join(current_line))
-        return lines
-
-    def _calculate_text_block_height(self, lines, font):
-          # --- PASTE _calculate_text_block_height method here ---
-        if not lines: return 0
-        try: _, top, _, bottom = font.getbbox('A'); line_h = bottom - top
-        except AttributeError: _, line_h = font.getsize('A') # Fallback for older Pillow versions
-        line_spacing_multiplier = 1.4 # Adjust line spacing as needed
-        total_height = line_h * len(lines) * line_spacing_multiplier
-        return total_height
-
-    def _draw_wrapped_text(self, draw, lines, text_color, font):
-        # --- PASTE _draw_wrapped_text method here ---
-        if not lines: return
-        try: _, top, _, bottom = font.getbbox('A'); line_h = bottom - top
-        except AttributeError: _, line_h = font.getsize('A') # Fallback for older Pillow versions
-        line_spacing_multiplier = 1.4; line_height_pixels = line_h * line_spacing_multiplier
-        total_height = line_height_pixels * len(lines); y = (self.height - total_height) // 2 # Vertically center the text block
-        for line in lines:
-             try: left, _, right, _ = font.getbbox(line); width = right - left
-             except AttributeError: width, _ = font.getsize(line) # Fallback for older Pillow versions
-             x = (self.width - width) // 2; # Horizontally center each line
-             draw.text((x, y), line, font=font, fill=text_color)
-             y += line_height_pixels
-
-    def create_silent_audio_segment(self, duration_ms):
-        # --- PASTE create_silent_audio_segment method here ---
-        return AudioSegment.silent(duration=duration_ms)
-
-    def create_synchronized_audio(self, audio_files, display_timings):
-        # --- PASTE create_synchronized_audio method here ---
-        self._log_status("Creating synchronized audio track...")
-        combined_audio = AudioSegment.empty(); current_position_ms = 0
-        for i, (audio_file, (start_time, end_time)) in enumerate(zip(audio_files, display_timings)):
-            start_ms = int(start_time * 1000); end_ms = int(end_time * 1000); display_duration_ms = end_ms - start_ms
-            try:
-                speech = AudioSegment.from_file(audio_file); speech_duration_ms = len(speech)
-                # Add silence before the speech if needed to match display timing
-                if start_ms > current_position_ms:
-                    silence_duration = start_ms - current_position_ms;
-                    silence = self.create_silent_audio_segment(silence_duration)
-                    combined_audio += silence;
-                    current_position_ms = start_ms
-
-                # The speech should fit within the 'stable' part of the display duration (total - 2*transition)
-                target_speech_duration_ms = display_duration_ms - int(self.transition_duration * 2 * 1000)
-
-                if target_speech_duration_ms <= 0:
-                    self._log_status(f"Warning: Display duration too short for transitions for sentence {i+1}. Using minimum 10ms for speech.")
-                    target_speech_duration_ms = 10 # Minimum speech duration
-
-                # Adjust speech speed if necessary
-                if speech_duration_ms > target_speech_duration_ms:
-                    speed_factor = speech_duration_ms / target_speech_duration_ms;
-                    # self._log_status(f"  Adjusting speed for sentence {i+1} (Factor: {speed_factor:.2f})") # Optional: log speed adjustment
-                    try:
-                         # New pydub speedup method
-                         speech = speech.speedup(playback_speed=speed_factor)
-                         # Ensure consistent frame rate after speedup
-                         speech = speech.set_frame_rate(44100)
-                    except AttributeError:
-                         # Older pydub speed adjustment method (less accurate)
-                         # self._log_status("  (Using older pydub speed adjustment method)")
-                         new_frame_rate = int(speech.frame_rate * speed_factor);
-                         speech = speech._spawn(speech.raw_data, overrides={"frame_rate": new_frame_rate});
-                         speech = speech.set_frame_rate(44100) # Reset to a standard rate
-
-                elif speech_duration_ms < target_speech_duration_ms:
-                    # Add padding if speech is shorter than target
-                    padding_needed = target_speech_duration_ms - speech_duration_ms;
-                    speech += self.create_silent_audio_segment(padding_needed)
-
-                combined_audio += speech;
-                current_position_ms += len(speech)
-
-                # Add silence for the transition OUT duration
-                transition_silence_ms = int(self.transition_duration * 1000);
-                combined_audio += self.create_silent_audio_segment(transition_silence_ms);
-                current_position_ms += transition_silence_ms # This accounts for the silence *after* the speech segment
-
-            except Exception as e:
-                self._log_status(f"Error processing audio for sentence {i+1} ({audio_file}): {e}")
-                # If audio processing fails, add silence for the expected display duration
-                display_duration_ms = int((end_time - start_time) * 1000)
-                if display_duration_ms > 0:
-                    combined_audio += self.create_silent_audio_segment(display_duration_ms);
-                    current_position_ms += display_duration_ms
-                # Decide if to re-raise or just log and continue with silence
-                # For a GUI, maybe just log and continue to avoid crashing the app?
-                # raise RuntimeError(f"Failed to process audio for sentence {i+1}.") from e # Re-raise if critical
-
-        combined_audio_path = os.path.join(self.temp_dir, "synchronized_audio.wav")
-        try:
-            combined_audio.export(combined_audio_path, format="wav");
-            self._log_status("Synchronized audio track created.")
-        except Exception as e:
-            self._log_status(f"Error exporting combined audio: {e}");
-            raise RuntimeError("Failed to export combined audio.") from e
-        return combined_audio_path
-
-
-    def cleanup(self):
-        # --- PASTE cleanup method here ---
-        if self.temp_dir and os.path.exists(self.temp_dir):
-            self._log_status(f"Cleaning up temporary directory: {self.temp_dir}")
-            try:
-                # Use onerror handler for robust cleanup
-                def onerror(func, path, exc_info):
-                    import warnings
-                    warnings.warn(f"Could not remove {path}: {exc_info[1]}")
-                shutil.rmtree(self.temp_dir, onerror=onerror)
-                self.temp_dir = None # Reset temp_dir after attempt
-                self._log_status("Cleanup complete.")
-            except Exception as e:
-                # This outer catch might be redundant with onerror but kept for safety
-                self._log_status(f"Warning: Failed to completely remove temporary directory {self.temp_dir}: {e}")
-
+            # Ensure cleanup happens regardless of success or failure
+            self.cleanup()
 # --- End of TextToVideo class ---
 
 
-# --- 4. list_balcon_voices function (Modified subprocess call) ---
+# --- Helper function from original script ---
 def list_balcon_voices(balcon_path):
+    """
+    Get a list of available voices from Balabolka (keep original logic)
+    """
     if not os.path.exists(balcon_path):
-        # Log this error in the GUI status if possible
-        # For now, return a list indicating the error
-        return ["ERROR: Balcon executable not found at specified path."]
-
-    creation_flags = 0
-    if platform.system() == "Windows":
-        # CREATE_NO_WINDOW = 0x08000000
-        creation_flags = 0x08000000
+        # print(f"Balcon path not found for listing voices: {balcon_path}")
+        return [] # Return empty list if path invalid
 
     try:
         # Use text=True and capture_output for cleaner handling
-        result = subprocess.run(
-            [balcon_path, '-l'],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='ignore',
-            creationflags=creation_flags # Hide console on Windows
-        )
+        result = subprocess.run([balcon_path, '-l'],
+                                check=True, # Raise error if balcon fails
+                                capture_output=True,
+                                text=True,
+                                encoding='utf-8', # Explicitly set encoding
+                                errors='ignore') # Ignore potential decoding errors
         voices = []
-        # Assuming the output format is lines of voice names after some header
-        # Adjust parsing based on actual 'balcon -l' output if needed
+
+        # Filter out empty lines and potential headers/footers
         for line in result.stdout.splitlines():
-              line = line.strip()
-              # Simple heuristic to skip header lines
-              if line and not line.startswith("---") and not line.lower().startswith("available"):
+             line = line.strip()
+             # Add basic filtering, adjust if Balcon output format differs
+             if line and not line.startswith("---") and not line.lower().startswith("available"):
                   voices.append(line)
-        if not voices and result.stderr:
-             # If no voices found but there was stderr output, maybe it's an error?
-             # Append stderr to voices list for user info in GUI
-             voices.append("Warning: No voices listed. Stderr:")
-             voices.extend(result.stderr.splitlines())
-        elif not voices:
-             # If no voices and no stderr, maybe just no voices are installed?
-             voices = ["No voices found."]
 
         return voices
-
     except FileNotFoundError:
-        # This is handled by the initial os.path.exists check now, but keeping for robustness
-        return ["ERROR: Balcon executable not found."]
+         # print(f"Error: Balcon executable not found at '{balcon_path}' when listing voices.")
+         return [] # Indicate error by returning empty list
     except subprocess.CalledProcessError as e:
-         # Log error via GUI status if possible
-         # Return error message in list for GUI display
-         error_msg = f"ERROR: Balcon failed (Return Code: {e.returncode})"
-         if e.stderr:
-             error_msg += f"\nStderr: {e.stderr.strip()[:200]}..."
-         return [error_msg]
+        # print(f"Error getting voices from Balcon: {e}")
+        # print(f"Balcon stderr: {e.stderr}")
+        return [] # Indicate error
     except Exception as e:
-         # Log error via GUI status if possible
-         # Return error message in list for GUI display
-         return [f"ERROR: Unexpected error listing voices: {e}"]
+        # print(f"An unexpected error occurred while listing voices: {e}")
+        return [] # Indicate error
 
 
-# --- 5. TextToVideoApp Class (Modified voice update logic) ---
+# --- Tkinter GUI Application ---
 class TextToVideoApp:
-    # --- Paste the __init__ method and other GUI methods here ---
-    # --- Modify _update_voice_combo_gui to handle error messages ---
     def __init__(self, master):
-        # --- PASTE __init__ method here ---
-        self.master = master; master.title("Text to Video Converter"); master.geometry("800x750")
-        self.style = ttk.Style(); self.style.theme_use('clam')
+        self.master = master
+        master.title("Text to Video Converter")
+        # Make window slightly larger
+        master.geometry("800x750")
 
-        self.input_text = tk.StringVar();
-        self.output_path = tk.StringVar(value="output.mp4");
+        # Style for ttk widgets
+        self.style = ttk.Style()
+        self.style.theme_use('clam') # Or 'alt', 'default', 'classic'
+
+        # --- Variables ---
+        self.input_text = tk.StringVar()
+        self.output_path = tk.StringVar(value="output.mp4")
         self.font_path = tk.StringVar()
-
-        self.font_size = tk.IntVar(value=40);
-        self.fps = tk.IntVar(value=24);
+        self.font_size = tk.IntVar(value=40)
+        self.fps = tk.IntVar(value=24)
         self.use_fixed_duration = tk.BooleanVar(value=False)
-        self.fixed_duration = tk.DoubleVar(value=5.0);
-        self.transition_duration = tk.DoubleVar(value=0.5);
-        self.width = tk.IntVar(value=1280);
-        self.height = tk.IntVar(value=720);
+        self.fixed_duration = tk.DoubleVar(value=5.0) # Default if checkbox is ticked
+        self.transition_duration = tk.DoubleVar(value=0.5)
+        self.width = tk.IntVar(value=1280)
+        self.height = tk.IntVar(value=720)
+        self.bg_color_rgb = (0, 0, 0)
+        self.bg_color_hex = "#000000"
+        self.text_color_rgb = (255, 255, 255)
+        self.text_color_hex = "#ffffff"
+        self.tts_engine = tk.StringVar(value="balcon") # Only option for now
+        self.balcon_path = tk.StringVar(value=self._find_default_balcon())
+        self.balcon_voices = []
+        self.selected_voice = tk.StringVar()
+        self.speed = tk.IntVar(value=0)
+        self.is_generating = False # Flag to prevent multiple generations
 
-        self.bg_color_rgb = (0, 0, 0); self.bg_color_hex = "#000000";
-        self.text_color_rgb = (255, 255, 255); self.text_color_hex = "#ffffff";
+        # --- GUI Layout ---
+        main_frame = ttk.Frame(master, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.tts_engine = tk.StringVar(value="balcon");
-        self.balcon_path = tk.StringVar(value=self._find_default_balcon());
-        self.balcon_voices = [];
-        self.selected_voice = tk.StringVar();
-        self.speed = tk.IntVar(value=0);
-        self.is_generating = False
-
-        main_frame = ttk.Frame(master, padding="10"); main_frame.pack(fill=tk.BOTH, expand=True);
+        # Configure grid columns
         main_frame.columnconfigure(1, weight=1)
 
-        # Input Text Area
-        row_idx = 0;
+        # --- Input Text ---
+        row_idx = 0
         ttk.Label(main_frame, text="Input Text:").grid(row=row_idx, column=0, sticky="nw", pady=2)
-        self.text_input_area = tk.Text(main_frame, height=10, width=60, wrap=tk.WORD, relief=tk.SOLID, borderwidth=1);
+        self.text_input_area = tk.Text(main_frame, height=10, width=60, wrap=tk.WORD, relief=tk.SOLID, borderwidth=1)
         self.text_input_area.grid(row=row_idx, column=1, columnspan=2, sticky="ew", pady=2)
-        text_scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.text_input_area.yview);
+        # Scrollbar for text area
+        text_scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.text_input_area.yview)
         text_scrollbar.grid(row=row_idx, column=3, sticky="ns")
-        self.text_input_area['yscrollcommand'] = text_scrollbar.set;
-        row_idx += 1
+        self.text_input_area['yscrollcommand'] = text_scrollbar.set
 
-        # Load Text Button
-        load_button = ttk.Button(main_frame, text="Load Text from File...", command=self.load_text_file);
-        load_button.grid(row=row_idx, column=1, columnspan=2, sticky="w", pady=5);
         row_idx += 1
+        load_button = ttk.Button(main_frame, text="Load Text from File...", command=self.load_text_file)
+        load_button.grid(row=row_idx, column=1, columnspan=2, sticky="w", pady=5)
 
-        # Output File Selection
+        # --- Output File ---
+        row_idx += 1
         ttk.Label(main_frame, text="Output Video File:").grid(row=row_idx, column=0, sticky="w", pady=2)
-        output_entry = ttk.Entry(main_frame, textvariable=self.output_path, width=50);
+        output_entry = ttk.Entry(main_frame, textvariable=self.output_path, width=50)
         output_entry.grid(row=row_idx, column=1, sticky="ew", padx=(0, 5))
-        output_button = ttk.Button(main_frame, text="Browse...", command=self.browse_output_file);
-        output_button.grid(row=row_idx, column=2, sticky="w");
+        output_button = ttk.Button(main_frame, text="Browse...", command=self.browse_output_file)
+        output_button.grid(row=row_idx, column=2, sticky="w")
+
+        # --- Settings Sections ---
         row_idx += 1
+        notebook = ttk.Notebook(main_frame)
+        notebook.grid(row=row_idx, column=0, columnspan=4, sticky="nsew", pady=10)
+        main_frame.rowconfigure(row_idx, weight=1) # Allow notebook to expand
 
-        # Notebook for Settings Tabs
-        notebook = ttk.Notebook(main_frame);
-        notebook.grid(row=row_idx, column=0, columnspan=4, sticky="nsew", pady=10);
-        main_frame.rowconfigure(row_idx, weight=1) # Make notebook expandable vertically
-
-        video_frame = ttk.Frame(notebook, padding="10");
-        audio_frame = ttk.Frame(notebook, padding="10");
+        video_frame = ttk.Frame(notebook, padding="10")
+        audio_frame = ttk.Frame(notebook, padding="10")
         text_style_frame = ttk.Frame(notebook, padding="10")
 
-        notebook.add(video_frame, text=' Video Settings ');
-        notebook.add(text_style_frame, text=' Text & Style '); # Moved text style to its own tab
+        notebook.add(video_frame, text=' Video Settings ')
+        notebook.add(text_style_frame, text=' Text & Style ')
         notebook.add(audio_frame, text=' Audio (TTS) Settings ')
 
-        # --- Video Settings Tab ---
-        vf_row = 0;
-        video_frame.columnconfigure(1, weight=1);
-        video_frame.columnconfigure(3, weight=1) # Allow columns for spinboxes/entries to expand
+        # --- Video Settings Frame ---
+        vf_row = 0
+        video_frame.columnconfigure(1, weight=1)
+        video_frame.columnconfigure(3, weight=1)
 
-        ttk.Label(video_frame, text="Width:").grid(row=vf_row, column=0, sticky="w", pady=3);
+        ttk.Label(video_frame, text="Width:").grid(row=vf_row, column=0, sticky="w", pady=3)
         ttk.Spinbox(video_frame, from_=100, to=7680, textvariable=self.width, width=8).grid(row=vf_row, column=1, sticky="w", pady=3)
 
-        ttk.Label(video_frame, text="Height:").grid(row=vf_row, column=2, sticky="w", padx=(10,0), pady=3);
-        ttk.Spinbox(video_frame, from_=100, to=4320, textvariable=self.height, width=8).grid(row=vf_row, column=3, sticky="w", pady=3);
-        vf_row += 1
+        ttk.Label(video_frame, text="Height:").grid(row=vf_row, column=2, sticky="w", padx=(10,0), pady=3)
+        ttk.Spinbox(video_frame, from_=100, to=4320, textvariable=self.height, width=8).grid(row=vf_row, column=3, sticky="w", pady=3)
 
-        ttk.Label(video_frame, text="FPS:").grid(row=vf_row, column=0, sticky="w", pady=3);
+        vf_row += 1
+        ttk.Label(video_frame, text="FPS:").grid(row=vf_row, column=0, sticky="w", pady=3)
         ttk.Spinbox(video_frame, from_=1, to=120, textvariable=self.fps, width=8).grid(row=vf_row, column=1, sticky="w", pady=3)
 
-        ttk.Label(video_frame, text="Transition (s):").grid(row=vf_row, column=2, sticky="w", padx=(10,0), pady=3);
-        ttk.Spinbox(video_frame, from_=0.0, to=10.0, increment=0.1, format="%.1f", textvariable=self.transition_duration, width=8).grid(row=vf_row, column=3, sticky="w", pady=3);
-        vf_row += 1
+        ttk.Label(video_frame, text="Transition (s):").grid(row=vf_row, column=2, sticky="w", padx=(10,0), pady=3)
+        ttk.Spinbox(video_frame, from_=0.0, to=10.0, increment=0.1, format="%.1f", textvariable=self.transition_duration, width=8).grid(row=vf_row, column=3, sticky="w", pady=3)
 
-        self.fixed_dur_check = ttk.Checkbutton(video_frame, text="Fixed Duration/Sentence:", variable=self.use_fixed_duration, command=self.toggle_fixed_duration);
+        vf_row += 1
+        self.fixed_dur_check = ttk.Checkbutton(video_frame, text="Fixed Duration/Sentence:", variable=self.use_fixed_duration, command=self.toggle_fixed_duration)
         self.fixed_dur_check.grid(row=vf_row, column=0, columnspan=2, sticky="w", pady=3)
-        self.fixed_dur_spinbox = ttk.Spinbox(video_frame, from_=0.1, to=300.0, increment=0.1, format="%.1f", textvariable=self.fixed_duration, width=8, state=tk.DISABLED);
+        self.fixed_dur_spinbox = ttk.Spinbox(video_frame, from_=0.1, to=300.0, increment=0.1, format="%.1f", textvariable=self.fixed_duration, width=8, state=tk.DISABLED)
         self.fixed_dur_spinbox.grid(row=vf_row, column=2, columnspan=2, sticky="w", pady=3)
-        vf_row += 1
 
-        # --- Text & Style Tab ---
-        tsf_row = 0;
-        text_style_frame.columnconfigure(1, minsize=150); # Give font path entry some space
-        text_style_frame.columnconfigure(3, weight=1) # Allow empty column to push button left
 
-        ttk.Label(text_style_frame, text="Font File:").grid(row=tsf_row, column=0, sticky="w", pady=3);
-        ttk.Entry(text_style_frame, textvariable=self.font_path, width=40).grid(row=tsf_row, column=1, sticky="ew", padx=(0, 5));
-        ttk.Button(text_style_frame, text="Browse...", command=self.browse_font_file).grid(row=tsf_row, column=2, sticky="w");
+        # --- Text & Style Settings Frame ---
+        tsf_row = 0
+        text_style_frame.columnconfigure(1, minsize=150) # Give space for font path
+        text_style_frame.columnconfigure(3, weight=1)
+
+        ttk.Label(text_style_frame, text="Font File:").grid(row=tsf_row, column=0, sticky="w", pady=3)
+        ttk.Entry(text_style_frame, textvariable=self.font_path, width=40).grid(row=tsf_row, column=1, sticky="ew", padx=(0, 5))
+        ttk.Button(text_style_frame, text="Browse...", command=self.browse_font_file).grid(row=tsf_row, column=2, sticky="w")
+
         tsf_row += 1
+        ttk.Label(text_style_frame, text="Font Size:").grid(row=tsf_row, column=0, sticky="w", pady=3)
+        ttk.Spinbox(text_style_frame, from_=8, to=200, textvariable=self.font_size, width=8).grid(row=tsf_row, column=1, sticky="w", pady=3)
 
-        ttk.Label(text_style_frame, text="Font Size:").grid(row=tsf_row, column=0, sticky="w", pady=3);
-        ttk.Spinbox(text_style_frame, from_=8, to=200, textvariable=self.font_size, width=8).grid(row=tsf_row, column=1, sticky="w", pady=3);
         tsf_row += 1
-
         ttk.Label(text_style_frame, text="Text Color:").grid(row=tsf_row, column=0, sticky="w", pady=3)
-        self.text_color_button = tk.Button(text_style_frame, text="Choose...", command=self.choose_text_color, width=10, relief=tk.GROOVE);
+        self.text_color_button = tk.Button(text_style_frame, text="Choose...", command=self.choose_text_color, width=10, relief=tk.GROOVE)
         self.text_color_button.grid(row=tsf_row, column=1, sticky="w", pady=3)
-        self.text_color_preview = tk.Label(text_style_frame, text="  ", background=self.text_color_hex, relief=tk.SUNKEN, borderwidth=1);
-        self.text_color_preview.grid(row=tsf_row, column=2, sticky="w", padx=5);
-        tsf_row += 1
+        self.text_color_preview = tk.Label(text_style_frame, text="  ", background=self.text_color_hex, relief=tk.SUNKEN, borderwidth=1)
+        self.text_color_preview.grid(row=tsf_row, column=2, sticky="w", padx=5)
+        self._update_color_preview(self.text_color_preview, self.text_color_hex) # Initial color
 
+        tsf_row += 1
         ttk.Label(text_style_frame, text="Background Color:").grid(row=tsf_row, column=0, sticky="w", pady=3)
-        self.bg_color_button = tk.Button(text_style_frame, text="Choose...", command=self.choose_background_color, width=10, relief=tk.GROOVE);
+        self.bg_color_button = tk.Button(text_style_frame, text="Choose...", command=self.choose_bg_color, width=10, relief=tk.GROOVE)
         self.bg_color_button.grid(row=tsf_row, column=1, sticky="w", pady=3)
-        self.bg_color_preview = tk.Label(text_style_frame, text="  ", background=self.bg_color_hex, relief=tk.SUNKEN, borderwidth=1);
-        self.bg_color_preview.grid(row=tsf_row, column=2, sticky="w", padx=5);
-        tsf_row += 1
+        self.bg_color_preview = tk.Label(text_style_frame, text="  ", background=self.bg_color_hex, relief=tk.SUNKEN, borderwidth=1)
+        self.bg_color_preview.grid(row=tsf_row, column=2, sticky="w", padx=5)
+        self._update_color_preview(self.bg_color_preview, self.bg_color_hex) # Initial color
 
-        # --- Audio (TTS) Settings Tab ---
-        af_row = 0;
-        audio_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(audio_frame, text="TTS Engine:").grid(row=af_row, column=0, sticky="w", pady=3);
-        self.tts_engine_combo = ttk.Combobox(audio_frame, textvariable=self.tts_engine, values=["balcon"], state="readonly");
-        self.tts_engine_combo.grid(row=af_row, column=1, sticky="ew", pady=3);
-        self.tts_engine_combo.bind('<<ComboboxSelected>>', self._on_tts_engine_changed)
+        # --- Audio (TTS) Settings Frame ---
+        af_row = 0
+        audio_frame.columnconfigure(1, weight=1) # Allow path entry to expand
+
+        ttk.Label(audio_frame, text="TTS Engine:").grid(row=af_row, column=0, sticky="w", pady=3)
+        # For now, only Balcon is supported
+        ttk.Combobox(audio_frame, textvariable=self.tts_engine, values=["balcon"], state="readonly", width=15).grid(row=af_row, column=1, sticky="w", pady=3)
+
         af_row += 1
+        ttk.Label(audio_frame, text="Balcon Path:").grid(row=af_row, column=0, sticky="w", pady=3)
+        ttk.Entry(audio_frame, textvariable=self.balcon_path, width=50).grid(row=af_row, column=1, sticky="ew", padx=(0, 5))
+        ttk.Button(audio_frame, text="Browse...", command=self.browse_balcon_path).grid(row=af_row, column=2, sticky="w")
 
-        ttk.Label(audio_frame, text="Balabolka Path:").grid(row=af_row, column=0, sticky="w", pady=3);
-        ttk.Entry(audio_frame, textvariable=self.balcon_path).grid(row=af_row, column=1, sticky="ew", padx=(0, 5));
-        ttk.Button(audio_frame, text="Browse...", command=self.browse_balcon_path).grid(row=af_row, column=2, sticky="w");
         af_row += 1
+        ttk.Label(audio_frame, text="Voice:").grid(row=af_row, column=0, sticky="w", pady=3)
+        self.voice_combo = ttk.Combobox(audio_frame, textvariable=self.selected_voice, state="readonly", width=35)
+        self.voice_combo.grid(row=af_row, column=1, sticky="w", pady=3)
+        ttk.Button(audio_frame, text="Refresh Voices", command=self.update_voices_list).grid(row=af_row, column=2, sticky="w", padx=5)
 
-        ttk.Label(audio_frame, text="Voice:").grid(row=af_row, column=0, sticky="w", pady=3);
-        self.voice_combo = ttk.Combobox(audio_frame, textvariable=self.selected_voice, state="readonly");
-        self.voice_combo.grid(row=af_row, column=1, sticky="ew", pady=3);
-        ttk.Button(audio_frame, text="Refresh Voices", command=self.refresh_voices).grid(row=af_row, column=2, sticky="w")
         af_row += 1
+        ttk.Label(audio_frame, text="Speech Speed (-10 to +10):").grid(row=af_row, column=0, sticky="w", pady=3)
+        ttk.Scale(audio_frame, from_=-10, to=10, variable=self.speed, orient=tk.HORIZONTAL, length=200, command=lambda v: self.speed.set(int(float(v)))).grid(row=af_row, column=1, columnspan=2, sticky="ew", pady=3)
+        speed_label = ttk.Label(audio_frame, textvariable=self.speed, width=4) # Display current speed value
+        speed_label.grid(row=af_row, column=3, sticky="w", padx=5)
 
-        ttk.Label(audio_frame, text="Speed:").grid(row=af_row, column=0, sticky="w", pady=3);
-        ttk.Spinbox(audio_frame, from_=-10, to=10, textvariable=self.speed, width=8).grid(row=af_row, column=1, sticky="w", pady=3);
-        af_row += 1
 
-        # Status Bar
-        row_idx += 1 # New row after notebook
-        self.status_label = ttk.Label(main_frame, text="Ready.", relief=tk.SUNKEN, anchor=tk.W)
-        self.status_label.grid(row=row_idx, column=0, columnspan=4, sticky="ew", pady=(10, 0))
+        # --- Action Button ---
         row_idx += 1
+        self.generate_button = ttk.Button(main_frame, text="Generate Video", command=self.start_generation)
+        self.generate_button.grid(row=row_idx, column=1, columnspan=2, pady=15)
 
-        # Generate Button
-        generate_button = ttk.Button(main_frame, text="Generate Video", command=self.start_generation_thread)
-        generate_button.grid(row=row_idx, column=0, columnspan=4, sticky="s", pady=10)
+        # --- Status Area ---
+        row_idx += 1
+        ttk.Label(main_frame, text="Status:").grid(row=row_idx, column=0, sticky="nw", pady=(5,0))
+        self.status_area = tk.Text(main_frame, height=8, width=60, wrap=tk.WORD, relief=tk.SOLID, borderwidth=1, state=tk.DISABLED)
+        self.status_area.grid(row=row_idx, column=1, columnspan=2, sticky="ew", pady=(5,0))
+        # Scrollbar for status area
+        status_scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.status_area.yview)
+        status_scrollbar.grid(row=row_idx, column=3, sticky="ns", pady=(5,0))
+        self.status_area['yscrollcommand'] = status_scrollbar.set
 
+        # --- Initial setup ---
+        self.update_voices_list() # Try to populate voices on startup
+        self.log_status("GUI Initialized. Ready.")
+        # Set focus to text input initially
+        self.text_input_area.focus_set()
 
-        # Initial state setup
-        self._update_voice_combo_gui()
-        self.toggle_fixed_duration() # Set initial state based on var
+    # --- GUI Action Methods ---
 
-    # --- PASTE remaining methods of TextToVideoApp class here ---
-    # (load_text_file, browse_output_file, browse_font_file, browse_balcon_path,
-    #  choose_text_color, choose_background_color, _rgb_to_hex, _hex_to_rgb,
-    #  toggle_fixed_duration, _find_default_balcon, refresh_voices,
-    #  _update_voice_combo_gui, _on_tts_engine_changed, update_status,
-    #  run_generation, start_generation_thread, check_generation_thread, on_generation_complete)
+    def _find_default_balcon(self):
+        """Attempts to find balcon.exe in common locations."""
+        paths_to_check = [
+            'balcon.exe', # Current dir or PATH
+            'C:\\Program Files (x86)\\Balabolka\\balcon.exe',
+            'C:\\Program Files\\Balabolka\\balcon.exe',
+            # Add Linux/Mac paths if relevant, though balcon is Windows
+        ]
+        for path in paths_to_check:
+            if os.path.exists(path):
+                return os.path.abspath(path)
+        return 'balcon.exe' # Default if not found
 
+    def toggle_fixed_duration(self):
+        if self.use_fixed_duration.get():
+            self.fixed_dur_spinbox.config(state=tk.NORMAL)
+        else:
+            self.fixed_dur_spinbox.config(state=tk.DISABLED)
 
     def load_text_file(self):
-        # --- PASTE load_text_file method here ---
         filepath = filedialog.askopenfilename(
+            title="Open Text File",
             filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
         )
         if not filepath:
@@ -877,356 +852,236 @@ class TextToVideoApp:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
-                self.text_input_area.delete(1.0, tk.END)
-                self.text_input_area.insert(tk.END, content)
+            self.text_input_area.delete('1.0', tk.END) # Clear existing text
+            self.text_input_area.insert(tk.END, content)
+            self.log_status(f"Loaded text from: {filepath}")
         except Exception as e:
-            messagebox.showerror("Error Loading File", f"Could not read file: {e}")
+            messagebox.showerror("Error Reading File", f"Could not read file:\n{e}")
+            self.log_status(f"Error loading file: {e}")
 
     def browse_output_file(self):
-        # --- PASTE browse_output_file method here ---
         filepath = filedialog.asksaveasfilename(
-            defaultextension=".mp4",
+            title="Save Video As",
             filetypes=[("MP4 Video", "*.mp4"), ("All Files", "*.*")],
-            initialfile="output.mp4"
+            defaultextension=".mp4",
+            initialfile=os.path.basename(self.output_path.get()) # Suggest current name
         )
         if filepath:
             self.output_path.set(filepath)
+            self.log_status(f"Output path set to: {filepath}")
 
     def browse_font_file(self):
-        # --- PASTE browse_font_file method here ---
         filepath = filedialog.askopenfilename(
+            title="Select Font File",
             filetypes=[("Font Files", "*.ttf *.otf *.ttc"), ("All Files", "*.*")]
         )
         if filepath:
             self.font_path.set(filepath)
+            self.log_status(f"Font path set to: {filepath}")
 
     def browse_balcon_path(self):
-        # --- PASTE browse_balcon_path method here ---
         filepath = filedialog.askopenfilename(
+            title="Select balcon.exe",
             filetypes=[("Executable Files", "*.exe"), ("All Files", "*.*")]
         )
         if filepath:
             self.balcon_path.set(filepath)
-            self.refresh_voices() # Refresh voices when path changes
+            self.log_status(f"Balcon path set to: {filepath}")
+            self.update_voices_list() # Refresh voices after changing path
+
+
+    def _update_color_preview(self, label_widget, hex_color):
+         """Updates the background color of a label widget."""
+         try:
+             label_widget.config(background=hex_color)
+         except tk.TclError: # Handle invalid color string if it somehow occurs
+             label_widget.config(background="SystemButtonFace") # Default color
+
 
     def choose_text_color(self):
-        # --- PASTE choose_text_color method here ---
         color_code = colorchooser.askcolor(title="Choose Text Color", initialcolor=self.text_color_hex)
-        if color_code:
-            rgb, hex_color = color_code
-            if hex_color:
-                self.text_color_rgb = tuple(int(c) for c in rgb)
-                self.text_color_hex = hex_color
-                self.text_color_preview.config(background=self.text_color_hex)
+        if color_code and color_code[0] and color_code[1]: # Check if a color was selected
+             self.text_color_rgb = tuple(int(c) for c in color_code[0])
+             self.text_color_hex = color_code[1]
+             self._update_color_preview(self.text_color_preview, self.text_color_hex)
+             self.log_status(f"Text color set to: {self.text_color_rgb}")
 
-    def choose_background_color(self):
-        # --- PASTE choose_background_color method here ---
+    def choose_bg_color(self):
         color_code = colorchooser.askcolor(title="Choose Background Color", initialcolor=self.bg_color_hex)
-        if color_code:
-            rgb, hex_color = color_code
-            if hex_color:
-                self.bg_color_rgb = tuple(int(c) for c in rgb)
-                self.bg_color_hex = hex_color
-                self.bg_color_preview.config(background=self.bg_color_hex)
+        if color_code and color_code[0] and color_code[1]:
+            self.bg_color_rgb = tuple(int(c) for c in color_code[0])
+            self.bg_color_hex = color_code[1]
+            self._update_color_preview(self.bg_color_preview, self.bg_color_hex)
+            self.log_status(f"Background color set to: {self.bg_color_rgb}")
 
-    def _rgb_to_hex(self, rgb):
-        # --- PASTE _rgb_to_hex method here ---
-        return f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
-
-    def _hex_to_rgb(self, hex_color):
-        # --- PASTE _hex_to_rgb method here ---
-        hex_color = hex_color.lstrip('#')
-        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-
-    def toggle_fixed_duration(self):
-        # --- PASTE toggle_fixed_duration method here ---
-        if self.use_fixed_duration.get():
-            self.fixed_dur_spinbox.config(state=tk.NORMAL)
-        else:
-            self.fixed_dur_spinbox.config(state=tk.DISABLED)
-
-    def _find_default_balcon(self):
-         # --- PASTE _find_default_balcon method here ---
-         # Common installation path heuristic for Balabolka command line tool
-         if platform.system() == "Windows":
-             program_files = os.environ.get("ProgramFiles(x86)", os.environ.get("ProgramFiles", "C:\\Program Files"))
-             balabolka_path = os.path.join(program_files, "Balabolka", "balcon.exe")
-             if os.path.exists(balabolka_path):
-                 return balabolka_path
-         return "balcon.exe" # Return just the executable name if not found, relies on PATH
-
-    def refresh_voices(self):
-        # --- PASTE refresh_voices method here ---
-        balcon_exe_path = self.balcon_path.get()
-        if not balcon_exe_path:
-            self.update_status("Balabolka path is not set.", is_error=True)
-            self.balcon_voices = []
-        elif not os.path.exists(balcon_exe_path):
-             self.update_status(f"Balabolka executable not found at '{balcon_exe_path}'.", is_error=True)
-             self.balcon_voices = ["ERROR: Balcon not found at path"]
-        else:
-             self.update_status("Refreshing Balabolka voices...")
-             # list_balcon_voices now returns potential error strings in the list
-             voices = list_balcon_voices(balcon_exe_path)
-             if voices and voices[0].startswith("ERROR"):
-                 self.update_status(voices[0], is_error=True)
-                 self.balcon_voices = voices # Store error message in list
-             else:
-                 self.balcon_voices = voices
-                 self.update_status(f"Found {len(self.balcon_voices)} Balabolka voices.")
-
-        self._update_voice_combo_gui()
-
-
-    def _update_voice_combo_gui(self):
-        # --- PASTE _update_voice_combo_gui method here ---
-        self.voice_combo['values'] = self.balcon_voices
-        if self.balcon_voices and not self.balcon_voices[0].startswith("ERROR"):
-            # Select the first voice if available and not an error message
-            current_voice = self.selected_voice.get()
-            if current_voice in self.balcon_voices:
-                self.voice_combo.set(current_voice) # Keep current selection if still valid
-            else:
-                self.voice_combo.set(self.balcon_voices[0])
-            self.voice_combo.config(state="readonly")
-        else:
-            # Disable combo box if no voices or an error occurred
-            self.voice_combo.set(self.balcon_voices[0] if self.balcon_voices else "No voices found")
-            self.voice_combo.config(state="disabled")
-
-
-    def _on_tts_engine_changed(self, event=None):
-        # --- PASTE _on_tts_engine_changed method here ---
-        # Currently only 'balcon' is supported, but placeholder for future
-        selected_engine = self.tts_engine.get()
-        if selected_engine == 'balcon':
-             self.balcon_path.set(self._find_default_balcon()) # Reset path helper
-             self.refresh_voices() # Refresh voices for Balcon
-        else:
-             # Disable voice/path settings for other engines if they are added
-             self.balcon_path.set("")
-             self.balcon_voices = []
-             self._update_voice_combo_gui()
-             self.update_status(f"TTS Engine '{selected_engine}' not fully supported yet.", is_error=False)
-
-
-    def update_status(self, message, is_error=False):
-        # --- PASTE update_status method here ---
-        color = "red" if is_error else "black"
-        self.status_label.config(text=message, foreground=color)
-        self.master.update_idletasks() # Update GUI immediately
-
-
-    def run_generation(self):
-        # --- PASTE run_generation method here ---
-        try:
-            self.update_status("Starting video generation...")
-            input_text = self.text_input_area.get(1.0, tk.END).strip()
-            if not input_text:
-                self.update_status("Input text is empty.", is_error=True)
-                messagebox.showwarning("Input Error", "Please enter text to convert to video.")
-                return False
-
-            output_file = self.output_path.get().strip()
-            if not output_file:
-                 self.update_status("Output file path is not set.", is_error=True)
-                 messagebox.showwarning("Input Error", "Please specify an output file path.")
-                 return False
-
-            if not output_file.lower().endswith('.mp4'):
-                output_file += '.mp4'
-                self.output_path.set(output_file) # Update GUI with corrected path
-
-            # Ensure parent directory exists
-            output_dir = os.path.dirname(output_file)
-            if output_dir and not os.path.exists(output_dir):
-                try:
-                    os.makedirs(output_dir)
-                    self.update_status(f"Created output directory: {output_dir}")
-                except Exception as e:
-                    self.update_status(f"Error creating output directory {output_dir}: {e}", is_error=True)
-                    messagebox.showerror("Directory Error", f"Could not create output directory:\n{output_dir}\n{e}")
-                    return False
-
-            tts_engine = self.tts_engine.get()
-            if tts_engine == 'balcon':
-                balcon_path = self.balcon_path.get().strip()
-                if not balcon_path or not os.path.exists(balcon_path):
-                    self.update_status(f"Balabolka path invalid or not set: '{balcon_path}'", is_error=True)
-                    messagebox.showerror("Configuration Error", f"Balabolka executable not found at:\n{balcon_path}\nPlease set the correct path in Audio Settings.")
-                    return False
-                selected_voice = self.selected_voice.get()
-                if not selected_voice or selected_voice.startswith("ERROR") or selected_voice == "No voices found":
-                    self.update_status("Selected voice is invalid or none found.", is_error=True)
-                    messagebox.showerror("Configuration Error", "Please select a valid voice or refresh voices.")
-                    return False
-            else:
-                 self.update_status(f"Unsupported TTS engine: {tts_engine}", is_error=True)
-                 messagebox.showerror("Configuration Error", f"Unsupported TTS engine: {tts_engine}")
-                 return False
-
-            font_path = self.font_path.get().strip()
-            # Allow using default font if path is empty, but warn if explicit path is invalid
-            if font_path and not os.path.exists(font_path):
-                 self.update_status(f"Font file not found: '{font_path}'. Using default font.", is_error=False)
-                 font_path = None # Use default font logic in TextToVideo init
-
-            video_generator = TextToVideo(
-                font_path=font_path,
-                font_size=self.font_size.get(),
-                fps=self.fps.get(),
-                duration_per_sentence=self.fixed_duration.get() if self.use_fixed_duration.get() else None,
-                transition_duration=self.transition_duration.get(),
-                width=self.width.get(),
-                height=self.height.get(),
-                background_color=self.bg_color_rgb,
-                text_color=self.text_color_rgb,
-                tts_engine=tts_engine,
-                voice=selected_voice,
-                speed=self.speed.get(),
-                balcon_path=balcon_path,
-                status_callback=self.update_status # Pass the status update method
-            )
-
-            sentences = video_generator.split_into_sentences(input_text)
-            if not sentences:
-                self.update_status("No valid sentences found in the input text.", is_error=True)
-                messagebox.showwarning("Input Error", "No valid sentences found after splitting the text.")
-                return False
-
-
-            video_generator.generate_video(sentences, output_file)
-            self.update_status(f"Video successfully generated: {output_file}")
-            return True
-
-        except FileNotFoundError as e:
-             # Catch specific file not found errors from within the generator
-             self.update_status(f"File Not Found Error: {e}", is_error=True)
-             messagebox.showerror("File Error", str(e))
-             return False
-        except RuntimeError as e:
-             # Catch specific runtime errors (like subprocess failures)
-             self.update_status(f"Runtime Error: {e}", is_error=True)
-             messagebox.showerror("Generation Error", str(e))
-             return False
-        except Exception as e:
-            # Catch any other unexpected errors
-            import traceback
-            print(f"An unexpected error occurred:\n{traceback.format_exc()}", file=sys.stderr) # Print traceback to console/log
-            self.update_status(f"An unexpected error occurred: {type(e).__name__} - {e}", is_error=True)
-            messagebox.showerror("Unexpected Error", f"An unexpected error occurred during generation:\n{e}")
-            return False
-        finally:
-             # Cleanup happens inside TextToVideo.generate_video's finally block
-             pass # No need for global cleanup here
-
-
-    def start_generation_thread(self):
-        # --- PASTE start_generation_thread method here ---
-        if self.is_generating:
-            messagebox.showinfo("Info", "Generation is already in progress.")
+    def update_voices_list(self):
+        """Gets voices from Balcon and updates the dropdown."""
+        balcon = self.balcon_path.get()
+        if not balcon or not os.path.exists(balcon):
+            self.log_status("Cannot refresh voices: Balcon path is invalid or not set.")
+            self.voice_combo['values'] = []
+            self.selected_voice.set("")
             return
 
-        self.is_generating = True
-        # Disable GUI elements during generation
-        self.toggle_gui_state(False)
-        self.update_status("Starting generation thread...")
-
-        # Use a thread to run the potentially long process
-        self.generation_thread = threading.Thread(target=self.run_generation_wrapper)
-        self.generation_thread.start()
-
-        # Start checking the thread status periodically
-        self.master.after(100, self.check_generation_thread)
-
-    def run_generation_wrapper(self):
-        # Wrapper function to run in the thread and handle completion status
-        success = self.run_generation() # This calls your main generation logic
-        # Communicate completion back to the main GUI thread (optional if just setting flag)
-        self.master.after(0, lambda: self.on_generation_complete(success))
+        self.log_status("Refreshing Balcon voices...")
+        try:
+            # Run in a separate thread to avoid blocking GUI if balcon is slow
+            thread = threading.Thread(target=self._fetch_voices_thread, args=(balcon,), daemon=True)
+            thread.start()
+        except Exception as e:
+             self.log_status(f"Error starting voice refresh thread: {e}")
 
 
-    def check_generation_thread(self):
-        # --- PASTE check_generation_thread method here ---
-        if self.generation_thread.is_alive():
-            # Thread is still running, schedule the check again
-            self.master.after(100, self.check_generation_thread)
-        # else:
-            # Thread finished, on_generation_complete will handle cleanup and status
+    def _fetch_voices_thread(self, balcon_path):
+        """Worker thread function to fetch voices."""
+        voices = list_balcon_voices(balcon_path)
+        # Use schedule method to update GUI from thread safely
+        self.master.after(0, self._update_voice_combo_gui, voices)
 
-    def on_generation_complete(self, success):
-        # --- PASTE on_generation_complete method here ---
-        self.is_generating = False
-        # Re-enable GUI elements
-        self.toggle_gui_state(True)
 
-        if success:
-            # Status was already updated by run_generation on success
-            # messagebox.showinfo("Success", "Video generation completed successfully!")
-            pass # Status message is enough
+    def _update_voice_combo_gui(self, voices):
+        """Updates the voice combobox (must be called from main GUI thread)."""
+        if voices:
+            self.balcon_voices = voices
+            self.voice_combo['values'] = self.balcon_voices
+            if self.balcon_voices:
+                current_selection = self.selected_voice.get()
+                # Try to keep current selection if it's still valid, else set to first
+                if current_selection not in self.balcon_voices:
+                    self.selected_voice.set(self.balcon_voices[0])
+            else:
+                 self.selected_voice.set("") # No voices available
+            self.log_status(f"Found {len(self.balcon_voices)} voices.")
         else:
-            # Status was already updated by run_generation on error
-            # An error message box was also likely shown
-            pass # Error message box and status are enough
-
-    def toggle_gui_state(self, enable):
-        # --- PASTE toggle_gui_state method here ---
-        state = tk.NORMAL if enable else tk.DISABLED
-        # List of widgets to enable/disable
-        widgets_to_toggle = [
-            self.text_input_area,
-            self.master.nametowidget(self.text_input_area.grid_info()['in']).grid_slaves(column=3, row=self.text_input_area.grid_info()['row'])[0], # The scrollbar
-            self.master.nametowidget(self.text_input_area.grid_info()['in']).grid_slaves(column=1, row=self.text_input_area.grid_info()['row'] + 1)[0], # Load Text Button
-            self.master.nametowidget(self.output_path.trace_info()[0][1]).grid_slaves(column=1, row=self.output_path.trace_info()[0][0])[0], # Output Entry (complex way)
-            self.master.nametowidget(self.output_path.trace_info()[0][1]).grid_slaves(column=2, row=self.output_path.trace_info()[0][0])[0], # Output Browse Button (complex way)
-
-            # Access widgets inside the notebook tabs
-            self.master.nametowidget(self.fixed_dur_check.winfo_parent()).grid_slaves(row=self.fixed_dur_check.grid_info()['row'], column=self.fixed_dur_check.grid_info()['column'])[0], # fixed_dur_check
-            self.master.nametowidget(self.fixed_dur_spinbox.winfo_parent()).grid_slaves(row=self.fixed_dur_spinbox.grid_info()['row'], column=self.fixed_dur_spinbox.grid_info()['column'])[0], # fixed_dur_spinbox
-            # Add other widgets in video_frame
-            self.master.nametowidget(self.width.trace_info()[0][1]).grid_slaves(row=0, column=1)[0], # Width Spinbox
-            self.master.nametowidget(self.height.trace_info()[0][1]).grid_slaves(row=0, column=3)[0], # Height Spinbox
-            self.master.nametowidget(self.fps.trace_info()[0][1]).grid_slaves(row=1, column=1)[0], # FPS Spinbox
-            self.master.nametowidget(self.transition_duration.trace_info()[0][1]).grid_slaves(row=1, column=3)[0], # Transition Spinbox
+            self.log_status("No voices found or error listing voices. Check Balcon path and installation.")
+            self.voice_combo['values'] = []
+            self.selected_voice.set("")
 
 
-            # Widgets in text_style_frame
-            self.master.nametowidget(self.font_path.trace_info()[0][1]).grid_slaves(row=0, column=1)[0], # Font Path Entry
-            self.master.nametowidget(self.font_path.trace_info()[0][1]).grid_slaves(row=0, column=2)[0], # Font Browse Button
-            self.master.nametowidget(self.font_size.trace_info()[0][1]).grid_slaves(row=1, column=1)[0], # Font Size Spinbox
-            self.text_color_button,
-            self.bg_color_button,
-
-            # Widgets in audio_frame
-            self.tts_engine_combo,
-            self.master.nametowidget(self.balcon_path.trace_info()[0][1]).grid_slaves(row=1, column=1)[0], # Balcon Path Entry
-            self.master.nametowidget(self.balcon_path.trace_info()[0][1]).grid_slaves(row=1, column=2)[0], # Balcon Browse Button
-            self.voice_combo,
-            self.master.nametowidget(self.voice_combo.grid_info()['in']).grid_slaves(row=self.voice_combo.grid_info()['row'], column=2)[0], # Refresh Voices Button
-            self.master.nametowidget(self.speed.trace_info()[0][1]).grid_slaves(row=3, column=1)[0], # Speed Spinbox
-
-            # The Generate button itself
-            self.master.nametowidget(self.status_label.grid_info()['in']).grid_slaves(row=self.status_label.grid_info()['row']+1, column=0)[0], # Generate Button (complex way)
-        ]
-
-        for widget in widgets_to_toggle:
-            if widget: # Check if the widget was found
-                try:
-                    widget.config(state=state)
-                except tk.TclError as e:
-                    # Handle widgets that might not have a 'state' option (e.g., Labels)
-                    # Or if the complex lookup failed
-                    # print(f"Warning: Could not configure state for {widget}: {e}")
-                    pass # Ignore if state config fails
+    def log_status(self, message):
+        """Appends a message to the status text area."""
+        self.status_area.config(state=tk.NORMAL)
+        timestamp = time.strftime("%H:%M:%S")
+        self.status_area.insert(tk.END, f"[{timestamp}] {message}\n")
+        self.status_area.see(tk.END) # Scroll to the bottom
+        self.status_area.config(state=tk.DISABLED)
+        self.master.update_idletasks() # Ensure GUI updates
 
 
-# --- Main execution block ---
+    def start_generation(self):
+        """Validates inputs and starts the video generation in a thread."""
+        if self.is_generating:
+            messagebox.showwarning("Busy", "Video generation is already in progress.")
+            return
+
+        # --- Input Validation ---
+        text = self.text_input_area.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showerror("Input Error", "Please enter text or load from a file.")
+            return
+
+        output = self.output_path.get()
+        if not output:
+            messagebox.showerror("Input Error", "Please specify an output video file path.")
+            return
+        output_dir = os.path.dirname(output)
+        if output_dir and not os.path.exists(output_dir):
+             try:
+                 os.makedirs(output_dir)
+                 self.log_status(f"Created output directory: {output_dir}")
+             except OSError as e:
+                 messagebox.showerror("Output Error", f"Could not create output directory:\n{output_dir}\n{e}")
+                 return
+
+        balcon = self.balcon_path.get()
+        if not balcon or not os.path.exists(balcon):
+            messagebox.showerror("Input Error", f"Balcon path is invalid:\n{balcon}")
+            return
+
+        font = self.font_path.get()
+        # Font path is optional, TextToVideo class handles default finding,
+        # but we can check existence if a path *is* provided.
+        if font and not os.path.exists(font):
+             # Warn but allow proceeding, the class will try defaults if it fails
+             messagebox.showwarning("Input Warning", f"Specified font file not found:\n{font}\nWill attempt default fonts.")
+             # self.font_path.set("") # Optionally clear the invalid path
+             # font = ""
+
+
+        # --- Prepare Parameters ---
+        params = {
+            "font_path": font or None, # Pass None if empty string
+            "font_size": self.font_size.get(),
+            "fps": self.fps.get(),
+            "duration_per_sentence": self.fixed_duration.get() if self.use_fixed_duration.get() else None,
+            "transition_duration": self.transition_duration.get(),
+            "width": self.width.get(),
+            "height": self.height.get(),
+            "background_color": self.bg_color_rgb,
+            "text_color": self.text_color_rgb,
+            "tts_engine": self.tts_engine.get(),
+            "language": 'en', # Currently unused by balcon logic, keep default
+            "voice": self.selected_voice.get() or None, # Pass None if empty
+            "speed": self.speed.get(),
+            "balcon_path": balcon,
+            "status_callback": self.log_status # Pass the logging function
+        }
+
+        # --- Start Thread ---
+        self.is_generating = True
+        self.generate_button.config(text="Generating...", state=tk.DISABLED)
+        self.log_status("Starting video generation...")
+
+        thread = threading.Thread(target=self._generation_worker, args=(text, output, params), daemon=True)
+        thread.start()
+
+
+    def _generation_worker(self, text_content, output_file, params):
+        """The actual work done in the background thread."""
+        try:
+            # Instantiate converter inside the thread
+            converter = TextToVideo(**params)
+
+            sentences = converter.split_into_sentences(text_content)
+            if not sentences:
+                 # Use master.after to show messagebox from main thread
+                 self.master.after(0, lambda: messagebox.showerror("Input Error", "No valid sentences found in the input text."))
+                 raise ValueError("No sentences found") # Stop thread execution
+
+            self.log_status(f"Found {len(sentences)} sentences. Starting main process...")
+
+            # Run the main generation function
+            converter.generate_video(sentences, output_file)
+
+            # If successful, notify user (via main thread)
+            self.master.after(0, lambda: messagebox.showinfo("Success", f"Video generation complete!\nOutput saved to:\n{output_file}"))
+
+        except Exception as e:
+            # Log the full error from the thread
+            self.log_status(f"GENERATION FAILED: {e}")
+            # Show a simpler error message to the user (via main thread)
+            self.master.after(0, lambda e=e: messagebox.showerror("Error", f"Video generation failed:\n{e}"))
+            # No cleanup() call here, it should happen in TextToVideo's finally block
+
+        finally:
+            # Reset button state (via main thread) regardless of success/failure
+            self.master.after(0, self._finalize_generation)
+
+
+    def _finalize_generation(self):
+        """Called from main thread to reset GUI after generation finishes or fails."""
+        self.is_generating = False
+        self.generate_button.config(text="Generate Video", state=tk.NORMAL)
+        self.log_status("Generation process finished.")
+
+
+# --- Main execution ---
 if __name__ == "__main__":
-    # The auto-relaunch logic is placed before the GUI starts
-
-    # If we reached here, either we are not on Windows,
-    # or pythonw.exe was not found, or we are already running with pythonw.
-
     root = tk.Tk()
+    # Set a default font for the GUI itself (optional)
+    # default_font = tkfont.nametofont("TkDefaultFont")
+    # default_font.configure(size=10)
+    # root.option_add("*Font", default_font)
+
     app = TextToVideoApp(root)
     root.mainloop()
